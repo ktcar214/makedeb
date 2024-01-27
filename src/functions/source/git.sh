@@ -1,5 +1,4 @@
 #!/bin/bash
-#
 #   git.sh - function for handling the download and "extraction" of Git sources
 #
 #   Copyright (c) 2015-2021 Pacman Development Team <pacman-dev@archlinux.org>
@@ -29,100 +28,108 @@ source "$LIBRARY/util/pkgbuild.sh"
 
 
 download_git() {
-	# abort early if parent says not to fetch
-	if declare -p get_vcs > /dev/null 2>&1; then
-		(( get_vcs )) || return
-	fi
+    # abort early if parent says not to fetch
+    if declare -p get_vcs > /dev/null 2>&1; then
+        (( get_vcs )) || return
+    fi
 
-	local netfile=$1
+    local netfile=$1
 
-	local dir=$(get_filepath "$netfile")
-	[[ -z "$dir" ]] && dir="$SRCDEST/$(get_filename "$netfile")"
+    local dir=$(get_filepath "$netfile")
+    [[ -z "$dir" ]] && dir="$SRCDEST/$(get_filename "$netfile")"
 
-	local repo=$(get_filename "$netfile")
+    local repo=$(get_filename "$netfile")
 
-	local url=$(get_url "$netfile")
-	url=${url#git+}
-	url=${url%%#*}
-	url=${url%%\?*}
-	local fragment=$(get_uri_fragment "$netfile")
+    local url=$(get_url "$netfile")
+    url=${url#git+}
+    url=${url%%#*}
+    url=${url%%\?*}
+    local fragment=$(get_uri_fragment "$netfile")
 
-	local ref=origin/HEAD
-	if [[ -n $fragment ]]; then
-		case ${fragment%%=*} in
-			commit|tag)
-				ref=${fragment##*=}
-				;;
-			branch)
-				ref=${fragment##*=}
-				;;
-			*)
-				error "$(gettext "Unrecognized reference: %s")" "${fragment}"
-				plainerr "$(gettext "Aborting...")"
-				exit 1
-		esac
-	fi
+    local ref=origin/HEAD
+    if [[ -n $fragment ]]; then
+        case ${fragment%%=*} in
+            commit|tag)
+                ref="${fragment##*=}"
+                checkout=1
+                ;;
+            branch)
+                branch="--branch ${fragment##*=}"
+                ;;
+            *)
+                error "$(gettext "Unrecognized reference: %s")" "${fragment}"
+                plainerr "$(gettext "Aborting...")"
+                exit 1
+        esac
+    fi
 
-	if [[ ! -d "$dir" ]] || dir_is_empty "$dir" ; then
-		msg2 "$(gettext "Cloning %s %s repo...")" "${repo}" "git"
-		if [[ $ref != "origin/HEAD" ]] || (( updating )) ; then
-			if ! git clone --depth 1 --no-single-branch --branch "${ref}" "$url" "$dir"; then
-				error "$(gettext "Failure while downloading %s %s repo")" "${repo}" "git"
-				plainerr "$(gettext "Aborting...")"
-				exit 1
-			fi
-		else
-			if ! git clone --depth 1 --no-single-branch "$url" "$dir"; then
-				error "$(gettext "Failure while downloading %s %s repo")" "${repo}" "git"
-				plainerr "$(gettext "Aborting...")"
-				exit 1
-			fi
-		fi
-	elif (( ! HOLDVER )); then
-		cd_safe "$dir"
-		# Make sure we are fetching the right repo
-		if [[ "$url" != "$(git config --get remote.origin.url)" ]] ; then
-			error "$(gettext "%s is not a clone of %s")" "$dir" "$url"
-			plainerr "$(gettext "Aborting...")"
-			exit 1
-		fi
-		msg2 "$(gettext "Updating %s %s repo...")" "${repo}" "git"
-		if ! git fetch --all -p; then
-			# only warn on failure to allow offline builds
-			warning "$(gettext "Failure while updating %s %s repo")" "${repo}" "git"
-		fi
-	fi
+    if [[ ! -d "$dir" ]] || dir_is_empty "$dir" ; then
+        msg2 "$(gettext "Cloning %s %s repo...")" "${repo}" "git"
+        if [[ $ref != "origin/HEAD" && $checkout == 0 ]] || (( updating )) ; then
+            if ! git clone --depth 1 --no-single-branch "$ref" "$url" "$dir"; then
+                error "$(gettext "Failure while downloading %s %s repo")" "${repo}" "git"
+                plainerr "$(gettext "Aborting...")"
+                exit 1
+            fi
+        elif [[ $checkout == 1 ]]; then
+            if ! git clone --depth 1 --no-single-branch "${url}" "${dir}" && git checkout "${ref}" "${dir}" ; then
+                error "$(gettext "Failure while downloading %s %s repo")" "${repo}" "git"
+                plainerr "$(gettext "Aborting...")"
+                exit 1
+            fi
+        else
+            if ! git clone --depth 1 --no-single-branch "${url}" "$dir"; then
+                error "$(gettext "Failure while downloading %s %s repo")" "${repo}" "git"
+                plainerr "$(gettext "Aborting...")"
+                exit 1
+            fi
+        fi
+
+    elif (( ! HOLDVER )); then
+        cd_safe "$dir"
+        # Make sure we are fetching the right repo
+        if [[ "$url" != "$(git config --get remote.origin.url)" ]] ; then
+            error "$(gettext "%s is not a clone of %s")" "$dir" "$url"
+            plainerr "$(gettext "Aborting...")"
+            exit 1
+        fi
+        msg2 "$(gettext "Updating %s %s repo...")" "${repo}" "git"
+        if ! git fetch --all -p; then
+            # only warn on failure to allow offline builds
+            warning "$(gettext "Failure while updating %s %s repo")" "${repo}" "git"
+        fi
+    fi
 }
 
 extract_git() {
-	local netfile=$1 tagname
+    local netfile=$1 tagname
 
-	local fragment=$(get_uri_fragment "$netfile")
-	local repo=$(get_filename "$netfile")
+    local fragment=$(get_uri_fragment "$netfile")
+    local repo=$(get_filename "$netfile")
 
-	local dir=$(get_filepath "$netfile")
-	[[ -z "$dir" ]] && dir="$SRCDEST/$(get_filename "$netfile")"
+    local dir=$(get_filepath "$netfile")
+    [[ -z "$dir" ]] && dir="$SRCDEST/$(get_filename "$netfile")"
 
-	msg2 "$(gettext "Creating working copy of %s %s repo...")" "${repo}" "git"
-	pushd "$srcdir" &>/dev/null
+    msg2 "$(gettext "Creating working copy of %s %s repo...")" "${repo}" "git"
+    pushd "$srcdir" &>/dev/null
 
-	local updating=0
-	if [[ -d "${dir##*/}" ]]; then
-		updating=1
-		cd_safe "${dir##*/}"
-		if ! git fetch; then
-			error "$(gettext "Failure while updating working copy of %s %s repo")" "${repo}" "git"
-			plainerr "$(gettext "Aborting...")"
-			exit 1
-		fi
-		cd_safe "$srcdir"
-	elif ! git clone -s "$dir" "${dir##*/}"; then
-		error "$(gettext "Failure while creating working copy of %s %s repo")" "${repo}" "git"
-		plainerr "$(gettext "Aborting...")"
-		exit 1
-	fi
+    local updating=0
+    if [[ -d "${dir##*/}" ]]; then
+        updating=1
+        cd_safe "${dir##*/}"
+        if ! git fetch; then
+            error "$(gettext "Failure while updating working copy of %s %s repo")" "${repo}" "git"
+            plainerr "$(gettext "Aborting...")"
+            exit 1
+        fi
+        cd_safe "$srcdir"
+    elif ! git clone -s "$dir" "${dir##*/}"; then
+        error "$(gettext "Failure while creating working copy of %s %s repo")" "${repo}" "git"
+        plainerr "$(gettext "Aborting...")"
+        exit 1
+    fi
 
-	cd_safe "${dir##*/}"
-  
-	popd &>/dev/null
+    cd_safe "${dir##*/}"
+
+    popd &>/dev/null
 }
